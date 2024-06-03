@@ -46,12 +46,22 @@ func handlePost(w http.ResponseWriter, req *http.Request) {
 	json.NewEncoder(w).Encode(NewShortenURLResponse(key, request.URL))
 }
 
+func handleGet(w http.ResponseWriter, req *http.Request) {
+	path := req.URL.Path
+	fmt.Println(path)
+	if path == "/" {
+		http.Error(w, "Not Found", http.StatusNotFound)
+		return
+	}
+	http.Redirect(w, req, fmt.Sprintf("https://%s", path), http.StatusMovedPermanently)
+}
+
 func handler(w http.ResponseWriter, req *http.Request) {
 	switch req.Method {
 	case "POST":
 		handlePost(w, req)
 	case "GET":
-		fmt.Fprintf(w, "GET url")
+		handleGet(w, req)
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
