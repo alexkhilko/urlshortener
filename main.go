@@ -6,9 +6,20 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 )
 
-// var cache map[string]string
+type DB	struct {
+	shortToLong map[string]string
+	longToShort map[string]string
+}
+
+func (db DB) add(short string, long string) {
+	db.shortToLong[short] = long
+	db.longToShort[long] = short
+}
+
+var db DB
 
 type ShortenURLRequest struct {
 	URL string `json:"url"`
@@ -43,17 +54,20 @@ func handlePost(w http.ResponseWriter, req *http.Request) {
 	}
 	key := GetMD5Hash(request.URL)[10:]
 	w.Header().Set("Content-Type", "application/json")
+	db.add(key, request.URL)
 	json.NewEncoder(w).Encode(NewShortenURLResponse(key, request.URL))
 }
 
 func handleGet(w http.ResponseWriter, req *http.Request) {
-	path := req.URL.Path
+	path := strings.Trim(req.URL.Path, "/")
 	fmt.Println(path)
-	if path == "/" {
+	fmt.Println(db.shortToLong)
+	url, ok := db.shortToLong[path]
+	if !ok {
 		http.Error(w, "Not Found", http.StatusNotFound)
 		return
 	}
-	http.Redirect(w, req, fmt.Sprintf("https://%s", path), http.StatusMovedPermanently)
+	http.Redirect(w, req, url, http.StatusMovedPermanently)
 }
 
 func handler(w http.ResponseWriter, req *http.Request) {
@@ -68,6 +82,7 @@ func handler(w http.ResponseWriter, req *http.Request) {
 }
 
 func main() {
+	db = DB{shortToLong: map[string]string{}, longToShort: map[string]string{}}
 	http.HandleFunc("/", handler)
 	http.ListenAndServe(":8090", nil)
 }
