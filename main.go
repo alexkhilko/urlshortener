@@ -39,7 +39,7 @@ func NewShortenURLResponse(key string, longURL string) ShortenURLResponse {
 	}
 }
 
-func GetMD5Hash(text string) string {
+func getMD5Hash(text string) string {
 	hash := md5.Sum([]byte(text))
 	return hex.EncodeToString(hash[:])
 }
@@ -52,7 +52,7 @@ func handlePost(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, "Error reading request body", http.StatusBadRequest)
 		return
 	}
-	key := GetMD5Hash(request.URL)[10:]
+	key := getMD5Hash(request.URL)[10:]
 	w.Header().Set("Content-Type", "application/json")
 	db.add(key, request.URL)
 	json.NewEncoder(w).Encode(NewShortenURLResponse(key, request.URL))

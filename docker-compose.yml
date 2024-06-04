@@ -1,0 +1,8 @@
+version: "3.8"
+services:
+  go:
+    build:
+      dockerfile: Dockerfile
+    ports:
+      - "8090:8090"
+      
