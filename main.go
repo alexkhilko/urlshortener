@@ -2,24 +2,14 @@ package main
 
 import (
 	"crypto/md5"
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
+	"github.com/redis/go-redis/v9"
 )
-
-type DB	struct {
-	shortToLong map[string]string
-	longToShort map[string]string
-}
-
-func (db DB) add(short string, long string) {
-	db.shortToLong[short] = long
-	db.longToShort[long] = short
-}
-
-var db DB
 
 type ShortenURLRequest struct {
 	URL string `json:"url"`
@@ -34,7 +24,7 @@ type ShortenURLResponse struct {
 func NewShortenURLResponse(key string, longURL string) ShortenURLResponse {
 	return ShortenURLResponse{
 		Key:      key,
-		ShortURL: fmt.Sprintf("http://localhost:8905/%s", key),
+		ShortURL: fmt.Sprintf("http://localhost:8090/%s", key),
 		LongURL:  longURL,
 	}
 }
@@ -42,6 +32,16 @@ func NewShortenURLResponse(key string, longURL string) ShortenURLResponse {
 func getMD5Hash(text string) string {
 	hash := md5.Sum([]byte(text))
 	return hex.EncodeToString(hash[:])
+}
+
+var redisClient * redis.Client
+
+func init() {
+    redisClient = redis.NewClient(&redis.Options{
+        Addr:     "redis:6379",
+        Password: "my-password", // no password set
+        DB:       0,  // use default DB
+    })
 }
 
 func handlePost(w http.ResponseWriter, req *http.Request) {
@@ -53,21 +53,28 @@ func handlePost(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	key := getMD5Hash(request.URL)[10:]
+	e := redisClient.Set(context.Background(), key, request.URL, 0).Err()
 	w.Header().Set("Content-Type", "application/json")
-	db.add(key, request.URL)
+	if e != nil {
+		fmt.Println("error on setting key in redis", e)
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
 	json.NewEncoder(w).Encode(NewShortenURLResponse(key, request.URL))
 }
 
 func handleGet(w http.ResponseWriter, req *http.Request) {
 	path := strings.Trim(req.URL.Path, "/")
-	fmt.Println(path)
-	fmt.Println(db.shortToLong)
-	url, ok := db.shortToLong[path]
-	if !ok {
+	val, err := redisClient.Get(context.Background(), path).Result()
+	if err == redis.Nil {
 		http.Error(w, "Not Found", http.StatusNotFound)
 		return
-	}
-	http.Redirect(w, req, url, http.StatusMovedPermanently)
+	} else if err != nil {
+		fmt.Println("error on getting key from redis", err)
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+    }
+	http.Redirect(w, req, val, http.StatusMovedPermanently)
 }
 
 func handler(w http.ResponseWriter, req *http.Request) {
@@ -82,7 +89,6 @@ func handler(w http.ResponseWriter, req *http.Request) {
 }
 
 func main() {
-	db = DB{shortToLong: map[string]string{}, longToShort: map[string]string{}}
 	http.HandleFunc("/", handler)
 	http.ListenAndServe(":8090", nil)
 }

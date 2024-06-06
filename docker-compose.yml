@@ -5,4 +5,17 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8090:8090"
-      
+  
+  redis:
+    image: redis:latest
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    environment:
+      - REDIS_PASSWORD=my-password
+      - REDIS_PORT=6379
+  
+volumes:
+  redis-data:
