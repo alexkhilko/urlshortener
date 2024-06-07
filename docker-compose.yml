@@ -1,10 +1,15 @@
 version: "3.8"
 services:
-  go:
-    build:
-      dockerfile: Dockerfile
+  web:
+    build: .
     ports:
       - "8090:8090"
+    environment:
+      - PORT=8090
+      - REDIS_PASSWORD=my-password
+      - REDIS_PORT=6379
+    depends_on:
+      - redis
   
   redis:
     image: redis:latest
@@ -16,6 +21,16 @@ services:
     environment:
       - REDIS_PASSWORD=my-password
       - REDIS_PORT=6379
+  
+  test:
+    build: .
+    depends_on:
+      - web
+    environment:
+      - REDIS_PASSWORD=my-password
+      - REDIS_PORT=6379
+      - PORT=8090
+    command: ["sh", "-c", "go test -v"]
   
 volumes:
   redis-data:
