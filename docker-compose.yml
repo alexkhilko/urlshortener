@@ -26,6 +26,7 @@ services:
     build: .
     depends_on:
       - web
+      - redis
     environment:
       - REDIS_PASSWORD=my-password
       - REDIS_PORT=6379

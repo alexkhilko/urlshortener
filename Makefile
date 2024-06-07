@@ -1,4 +1,4 @@
-.PHONY: build up down test
+.PHONY: build up down test quicktest
 
 build:
 	docker compose build
@@ -10,5 +10,9 @@ down:
 	docker compose down
 
 test: build
+	docker compose run --rm test
+	$(MAKE) down
+
+quicktest:
 	docker compose run --rm test
 	$(MAKE) down

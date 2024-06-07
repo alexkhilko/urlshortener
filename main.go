@@ -10,6 +10,7 @@ import (
 	"strings"
 	"github.com/redis/go-redis/v9"
 	"os"
+	"time"
 )
 
 type ShortenURLRequest struct {
@@ -35,7 +36,7 @@ func getMD5Hash(text string) string {
 	return hex.EncodeToString(hash[:])
 }
 
-var redisClient * redis.Client
+var redisClient *redis.Client
 
 func init() {
     redisClient = redis.NewClient(&redis.Options{
@@ -54,7 +55,9 @@ func handlePost(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	key := getMD5Hash(request.URL)[10:]
-	e := redisClient.Set(context.Background(), key, request.URL, 0).Err()
+	ctx, cancel := context.WithTimeout(context.Background(), 5 * time.Second)
+    defer cancel()
+	e := redisClient.Set(ctx, key, request.URL, 0).Err()
 	w.Header().Set("Content-Type", "application/json")
 	if e != nil {
 		fmt.Println("error on setting key in redis", e)
@@ -66,7 +69,9 @@ func handlePost(w http.ResponseWriter, req *http.Request) {
 
 func handleGet(w http.ResponseWriter, req *http.Request) {
 	path := strings.Trim(req.URL.Path, "/")
-	val, err := redisClient.Get(context.Background(), path).Result()
+	ctx, cancel := context.WithTimeout(context.Background(), 5 * time.Second)
+    defer cancel()
+	val, err := redisClient.Get(ctx, path).Result()
 	if err == redis.Nil {
 		http.Error(w, "Not Found", http.StatusNotFound)
 		return
