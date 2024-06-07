@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 	"github.com/redis/go-redis/v9"
+	"os"
 )
 
 type ShortenURLRequest struct {
@@ -38,9 +39,9 @@ var redisClient * redis.Client
 
 func init() {
     redisClient = redis.NewClient(&redis.Options{
-        Addr:     "redis:6379",
-        Password: "my-password", // no password set
-        DB:       0,  // use default DB
+        Addr:     fmt.Sprintf("redis:%s", os.Getenv("REDIS_PORT")),
+        Password: os.Getenv("REDIS_PASSWORD"),
+        DB:       0,
     })
 }
 
@@ -89,6 +90,11 @@ func handler(w http.ResponseWriter, req *http.Request) {
 }
 
 func main() {
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8090"
+	}
+	fmt.Println("Server is listening on :", port)
 	http.HandleFunc("/", handler)
-	http.ListenAndServe(":8090", nil)
+	http.ListenAndServe(fmt.Sprintf(":%s", port), nil)
 }
