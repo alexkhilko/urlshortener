@@ -68,10 +68,10 @@ func handlePost(w http.ResponseWriter, req *http.Request) {
 }
 
 func handleGet(w http.ResponseWriter, req *http.Request) {
-	path := strings.Trim(req.URL.Path, "/")
+	key := strings.Trim(req.URL.Path, "/")
 	ctx, cancel := context.WithTimeout(context.Background(), 5 * time.Second)
     defer cancel()
-	val, err := redisClient.Get(ctx, path).Result()
+	val, err := redisClient.Get(ctx, key).Result()
 	if err == redis.Nil {
 		http.Error(w, "Not Found", http.StatusNotFound)
 		return
@@ -83,12 +83,32 @@ func handleGet(w http.ResponseWriter, req *http.Request) {
 	http.Redirect(w, req, val, http.StatusMovedPermanently)
 }
 
+func handleDelete(w http.ResponseWriter, req *http.Request) {
+	key := strings.Trim(req.URL.Path, "/")
+	ctx, cancel := context.WithTimeout(context.Background(), 5 * time.Second)
+    defer cancel()
+	res, err := redisClient.Del(ctx, key).Result()
+	if err != nil {
+		fmt.Println("error on deleting key from redis", err)
+		http.Error(w, "Internal error delete", http.StatusInternalServerError)
+		return
+	}
+	if res == 0 {
+		fmt.Println("key not found", key)
+		http.Error(w, "Key not found", http.StatusNotFound)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
 func handler(w http.ResponseWriter, req *http.Request) {
 	switch req.Method {
 	case "POST":
 		handlePost(w, req)
 	case "GET":
 		handleGet(w, req)
+	case "DELETE":
+		handleDelete(w, req)
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
