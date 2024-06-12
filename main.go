@@ -1,15 +1,15 @@
 package main
 
 import (
-	"crypto/md5"
 	"context"
-	"encoding/hex"
+	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"net/http"
-	"strings"
 	"github.com/redis/go-redis/v9"
+	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -31,19 +31,39 @@ func NewShortenURLResponse(key string, longURL string) ShortenURLResponse {
 	}
 }
 
-func getMD5Hash(text string) string {
-	hash := md5.Sum([]byte(text))
-	return hex.EncodeToString(hash[:])
-}
-
 var redisClient *redis.Client
 
 func init() {
-    redisClient = redis.NewClient(&redis.Options{
-        Addr:     fmt.Sprintf("redis:%s", os.Getenv("REDIS_PORT")),
-        Password: os.Getenv("REDIS_PASSWORD"),
-        DB:       0,
-    })
+	redisClient = redis.NewClient(&redis.Options{
+		Addr:     fmt.Sprintf("redis:%s", os.Getenv("REDIS_PORT")),
+		Password: os.Getenv("REDIS_PASSWORD"),
+		DB:       0,
+	})
+}
+
+func randString(n int) string {
+	const alphanum = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+	var bytes = make([]byte, n)
+	rand.Read(bytes)
+	for i, b := range bytes {
+		bytes[i] = alphanum[b%byte(len(alphanum))]
+	}
+	return string(bytes)
+}
+
+func generateShortURL(url string) (string, error) {
+	for i := 0; i < 10; i++ {
+		key := randString(10)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_, err := redisClient.GetSet(ctx, key, url).Result()
+		if err == redis.Nil {
+			return key, nil
+		} else if err != nil {
+			return key, err
+		}
+	}
+	return "", errors.New("failed to generate unique key after 10 attempts")
 }
 
 func handlePost(w http.ResponseWriter, req *http.Request) {
@@ -54,23 +74,20 @@ func handlePost(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, "Error reading request body", http.StatusBadRequest)
 		return
 	}
-	key := getMD5Hash(request.URL)[10:]
-	ctx, cancel := context.WithTimeout(context.Background(), 5 * time.Second)
-    defer cancel()
-	e := redisClient.Set(ctx, key, request.URL, 0).Err()
-	w.Header().Set("Content-Type", "application/json")
+	key, e := generateShortURL(request.URL)
 	if e != nil {
 		fmt.Println("error on setting key in redis", e)
 		http.Error(w, "Internal error", http.StatusInternalServerError)
 		return
 	}
+	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(NewShortenURLResponse(key, request.URL))
 }
 
 func handleGet(w http.ResponseWriter, req *http.Request) {
 	key := strings.Trim(req.URL.Path, "/")
-	ctx, cancel := context.WithTimeout(context.Background(), 5 * time.Second)
-    defer cancel()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	val, err := redisClient.Get(ctx, key).Result()
 	if err == redis.Nil {
 		http.Error(w, "Not Found", http.StatusNotFound)
@@ -79,14 +96,14 @@ func handleGet(w http.ResponseWriter, req *http.Request) {
 		fmt.Println("error on getting key from redis", err)
 		http.Error(w, "Internal error", http.StatusInternalServerError)
 		return
-    }
+	}
 	http.Redirect(w, req, val, http.StatusMovedPermanently)
 }
 
 func handleDelete(w http.ResponseWriter, req *http.Request) {
 	key := strings.Trim(req.URL.Path, "/")
-	ctx, cancel := context.WithTimeout(context.Background(), 5 * time.Second)
-    defer cancel()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	res, err := redisClient.Del(ctx, key).Result()
 	if err != nil {
 		fmt.Println("error on deleting key from redis", err)
