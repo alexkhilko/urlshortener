@@ -1,11 +1,8 @@
-module urlshortener
+module github.com/alexkhilko/urlshortener
 
 go 1.21.6
 
-require (
-	github.com/google/go-cmp v0.6.0
-	github.com/redis/go-redis/v9 v9.5.2
-)
+require github.com/redis/go-redis/v9 v9.5.3
 
 require (
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect

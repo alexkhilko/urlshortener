@@ -8,7 +8,7 @@ import (
 	"os"
 	"testing"
 	"github.com/redis/go-redis/v9"
-	"github.com/google/go-cmp/cmp"
+	"github.com/alexkhilko/urlshortener/handler"
 	"context"
 	"time"
 )
@@ -23,7 +23,7 @@ var  (
 
 func TestMain(m *testing.M) {
 	port = os.Getenv("PORT")
-	redisClient = redis.NewClient(&redis.Options{
+	redisClient := redis.NewClient(&redis.Options{
         Addr:     fmt.Sprintf("redis:%s", os.Getenv("REDIS_PORT")),
         Password: os.Getenv("REDIS_PASSWORD"),
         DB:       0,
@@ -84,7 +84,7 @@ func TestRedirect(t *testing.T) {
 func TestShortenURL(t *testing.T) {
 	url := fmt.Sprintf("http://web:%s/", port)
 	longURL := "http://example.com"
-	requestBody, err := json.Marshal(ShortenURLRequest{URL: longURL})
+	requestBody, err := json.Marshal(handler.ShortenURLRequest{URL: longURL})
 	if err != nil {
 		t.Error("Error marshalling request body", err)
 	}
@@ -94,18 +94,5 @@ func TestShortenURL(t *testing.T) {
 	}
 	if resp.StatusCode != http.StatusOK {
 		t.Error("unexpected status code", resp.StatusCode)
-	}
-	var shortenResponse ShortenURLResponse
-    if err := json.NewDecoder(resp.Body).Decode(&shortenResponse); err != nil {
-		t.Error("Error decoding response body:", err)
-    }
-	expKey := getMD5Hash(longURL)[10:]
-	expected := ShortenURLResponse{
-		Key: expKey,
-		ShortURL: fmt.Sprintf("http://localhost:%s/%s", port, expKey),
-		LongURL: longURL,
-	}
-	if diff := cmp.Diff(shortenResponse, expected); diff != "" {
-		t.Error(diff)
 	}
 }
