@@ -52,18 +52,45 @@ func randString(n int) string {
 }
 
 func generateShortURL(url string) (string, error) {
-	for i := 0; i < 10; i++ {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	fmt.Println("checking url in redis", url)
+	val, err := redisClient.Get(ctx, url).Result()
+	if err == nil {
+		return val, nil
+	}
+
+	for i := 0; i < 5; i++ {
 		key := randString(10)
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_, err := redisClient.GetSet(ctx, key, url).Result()
-		if err == redis.Nil {
+		_, err := redisClient.Pipelined(ctx, func(pipe redis.Pipeliner) error {
+			val, err := pipe.Exists(ctx, key).Result()
+			fmt.Println("checking value exists", val, err)
+			if err != nil {
+				return err
+			}
+			if val > 0 {
+				return errors.New("value exists")
+			}
+			e1 := pipe.Set(ctx, key, url, 0).Err()
+			fmt.Println("setting key", key, url)
+
+			if e1 != nil {
+				fmt.Println("error setting key", e1)
+				return e1
+			}
+			fmt.Println("setting url", url, key)
+			e2 := pipe.Set(ctx, url, key, 0).Err()
+			if e2 != nil {
+				fmt.Println("error setting key", e1)
+				return e2
+			}
+			return nil
+		})
+		if err == nil {
 			return key, nil
-		} else if err != nil {
-			return key, err
 		}
 	}
-	return "", errors.New("failed to generate unique key after 10 attempts")
+	return "", errors.New("failed to generate unique key after 5 attempts")
 }
 
 func handlePost(w http.ResponseWriter, req *http.Request) {
@@ -104,14 +131,20 @@ func handleDelete(w http.ResponseWriter, req *http.Request) {
 	key := strings.Trim(req.URL.Path, "/")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	res, err := redisClient.Del(ctx, key).Result()
-	if err != nil {
-		fmt.Println("error on deleting key from redis", err)
+	// TODO: Make transactional delete
+	val, err1 := redisClient.GetDel(ctx, key).Result()
+	if err1 == redis.Nil {
+		fmt.Println("key not found", key)
+		http.Error(w, "Key not found", http.StatusNotFound)
+		return
+	} else if err1 != nil {
+		fmt.Println("error on deleting key from redis", err1)
 		http.Error(w, "Internal error delete", http.StatusInternalServerError)
 		return
 	}
-	if res == 0 {
-		fmt.Println("key not found", key)
+	err2 := redisClient.Del(ctx, val).Err()
+	if err2 != nil {
+		fmt.Println("long url was not deleted", key)
 		http.Error(w, "Key not found", http.StatusNotFound)
 		return
 	}
