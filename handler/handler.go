@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"github.com/redis/go-redis/v9"
 	"net/http"
@@ -58,35 +57,18 @@ func generateShortURL(url string) (string, error) {
 	if err == nil {
 		return val, nil
 	}
-
-	for i := 0; i < 5; i++ {
-		key := randString(10)
-		_, err := redisClient.Pipelined(ctx, func(pipe redis.Pipeliner) error {
-			val, err := pipe.Exists(ctx, key).Result()
-			if err != nil {
-				return err
-			}
-			if val > 0 {
-				return errors.New("value exists")
-			}
-			e1 := pipe.Set(ctx, key, url, 0).Err()
-
-			if e1 != nil {
-				fmt.Println("error setting key", e1)
-				return e1
-			}
-			e2 := pipe.Set(ctx, url, key, 0).Err()
-			if e2 != nil {
-				fmt.Println("error setting key", e1)
-				return e2
-			}
-			return nil
-		})
-		if err == nil {
-			return key, nil
-		}
+	key := randString(10)
+	e1 := redisClient.Set(ctx, key, url, 0).Err()
+	if e1 != nil {
+		fmt.Println("error setting key", e1)
+		return "", e1
 	}
-	return "", errors.New("failed to generate unique key after 5 attempts")
+	e2 := redisClient.Set(ctx, url, key, 0).Err()
+	if e2 != nil {
+		fmt.Println("error setting key value", e2)
+		return "", e2
+	}
+	return key, nil
 }
 
 func Post(w http.ResponseWriter, req *http.Request) {
@@ -127,7 +109,6 @@ func Delete(w http.ResponseWriter, req *http.Request) {
 	key := strings.Trim(req.URL.Path, "/")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	// TODO: Make transactional delete
 	val, err1 := redisClient.GetDel(ctx, key).Result()
 	if err1 == redis.Nil {
 		fmt.Println("key not found", key)
