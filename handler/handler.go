@@ -5,11 +5,10 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
-	"github.com/redis/go-redis/v9"
 	"net/http"
-	"os"
 	"strings"
 	"time"
+	"github.com/alexkhilko/urlshortener/repository"
 )
 
 type ShortenURLRequest struct {
@@ -30,15 +29,6 @@ func NewShortenURLResponse(key string, longURL string) ShortenURLResponse {
 	}
 }
 
-var redisClient *redis.Client
-
-func init() {
-	redisClient = redis.NewClient(&redis.Options{
-		Addr:     fmt.Sprintf("redis:%s", os.Getenv("REDIS_PORT")),
-		Password: os.Getenv("REDIS_PASSWORD"),
-		DB:       0,
-	})
-}
 
 func randString(n int) string {
 	const alphanum = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
@@ -50,20 +40,28 @@ func randString(n int) string {
 	return string(bytes)
 }
 
-func generateShortURL(url string) (string, error) {
+type AppHandler struct {
+	repo repository.Repository
+}
+
+func NewAppHandler(repo repository.Repository) *AppHandler {
+	return &AppHandler{repo: repo}
+}
+
+func generateShortURL(repo repository.Repository,  url string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	val, err := redisClient.Get(ctx, url).Result()
-	if err == nil {
+	val, err := repo.Find(ctx, url)
+	if err == nil && val != "" {
 		return val, nil
 	}
 	key := randString(10)
-	e1 := redisClient.Set(ctx, key, url, 0).Err()
+	e1 := repo.Set(ctx, key, url)
 	if e1 != nil {
 		fmt.Println("error setting key", e1)
 		return "", e1
 	}
-	e2 := redisClient.Set(ctx, url, key, 0).Err()
+	e2 := repo.Set(ctx, url, key)
 	if e2 != nil {
 		fmt.Println("error setting key value", e2)
 		return "", e2
@@ -71,7 +69,7 @@ func generateShortURL(url string) (string, error) {
 	return key, nil
 }
 
-func Post(w http.ResponseWriter, req *http.Request) {
+func (a *AppHandler) Post(w http.ResponseWriter, req *http.Request) {
 	var request ShortenURLRequest
 	err := json.NewDecoder(req.Body).Decode(&request)
 	if err != nil {
@@ -79,9 +77,9 @@ func Post(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, "Error reading request body", http.StatusBadRequest)
 		return
 	}
-	key, e := generateShortURL(request.URL)
+	key, e := generateShortURL(a.repo, request.URL)
 	if e != nil {
-		fmt.Println("error on setting key in redis", e)
+		fmt.Println("error on setting key", e)
 		http.Error(w, "Internal error", http.StatusInternalServerError)
 		return
 	}
@@ -89,37 +87,37 @@ func Post(w http.ResponseWriter, req *http.Request) {
 	json.NewEncoder(w).Encode(NewShortenURLResponse(key, request.URL))
 }
 
-func Get(w http.ResponseWriter, req *http.Request) {
+func (a *AppHandler) Get(w http.ResponseWriter, req *http.Request) {
 	key := strings.Trim(req.URL.Path, "/")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	val, err := redisClient.Get(ctx, key).Result()
-	if err == redis.Nil {
-		http.Error(w, "Not Found", http.StatusNotFound)
-		return
-	} else if err != nil {
-		fmt.Println("error on getting key from redis", err)
+	val, err := a.repo.Find(ctx, key)
+	if err != nil {
+		fmt.Println("error on getting key from repo", err)
 		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	} else if val == "" {
+		http.Error(w, "Not Found", http.StatusNotFound)
 		return
 	}
 	http.Redirect(w, req, val, http.StatusMovedPermanently)
 }
 
-func Delete(w http.ResponseWriter, req *http.Request) {
+func (a *AppHandler) Delete(w http.ResponseWriter, req *http.Request) {
 	key := strings.Trim(req.URL.Path, "/")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	val, err1 := redisClient.GetDel(ctx, key).Result()
-	if err1 == redis.Nil {
+	val, err1 := a.repo.GetDel(ctx, key)
+	if err1 != nil {
+		fmt.Println("error on deleting key", err1)
+		http.Error(w, "Internal error delete", http.StatusInternalServerError)
+		return
+	} else if val == "" {
 		fmt.Println("key not found", key)
 		http.Error(w, "Key not found", http.StatusNotFound)
 		return
-	} else if err1 != nil {
-		fmt.Println("error on deleting key from redis", err1)
-		http.Error(w, "Internal error delete", http.StatusInternalServerError)
-		return
-	}
-	err2 := redisClient.Del(ctx, val).Err()
+	} 
+	_, err2 := a.repo.GetDel(ctx, val)
 	if err2 != nil {
 		fmt.Println("long url was not deleted", key)
 		http.Error(w, "Key not found", http.StatusNotFound)
