@@ -9,10 +9,5 @@ up:
 down:
 	docker compose down
 
-test: build
-	docker compose run --rm test
-	$(MAKE) down
-
-quicktest:
-	docker compose run --rm test
-	$(MAKE) down
+test: 
+	go test -v

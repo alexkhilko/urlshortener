@@ -22,16 +22,5 @@ services:
       - REDIS_PASSWORD=my-password
       - REDIS_PORT=6379
   
-  test:
-    build: .
-    depends_on:
-      - web
-      - redis
-    environment:
-      - REDIS_PASSWORD=my-password
-      - REDIS_PORT=6379
-      - PORT=8090
-    command: ["sh", "-c", "go test -v"]
-  
 volumes:
   redis-data:
