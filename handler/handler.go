@@ -125,3 +125,16 @@ func (a *AppHandler) Delete(w http.ResponseWriter, req *http.Request) {
 	}
 	w.WriteHeader(http.StatusOK)
 }
+
+func (a *AppHandler) Handle(w http.ResponseWriter, req *http.Request) {
+	switch req.Method {
+	case "POST":
+		a.Post(w, req)
+	case "GET":
+		a.Get(w, req)
+	case "DELETE":
+		a.Delete(w, req)
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}

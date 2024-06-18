@@ -7,9 +7,8 @@ import (
 	"net/http"
 	"os"
 	"testing"
-	"github.com/redis/go-redis/v9"
 	"github.com/alexkhilko/urlshortener/handler"
-	"context"
+	"github.com/alexkhilko/urlshortener/repository"
 	"time"
 )
 
@@ -22,37 +21,28 @@ var  (
 
 
 func TestMain(m *testing.M) {
-	port = os.Getenv("PORT")
-	redisClient := redis.NewClient(&redis.Options{
-        Addr:     fmt.Sprintf("redis:%s", os.Getenv("REDIS_PORT")),
-        Password: os.Getenv("REDIS_PASSWORD"),
-        DB:       0,
-    })
+	port = "9989"
 	client = &http.Client{
         Timeout: 5 * time.Second, 
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+            // Prevent the client from following redirects
+            return http.ErrUseLastResponse
+        },
     }
-	ctx, cancel := context.WithTimeout(context.Background(), 5 * time.Second)
-    defer cancel()
-	e := redisClient.Set(ctx, testKey, testUrl, 0).Err()
-	if e != nil {
-		panic("Could not set up test data in Redis: " + e.Error())
-	}
-	// Ensure Redis is reachable
-	if err := redisClient.Ping(ctx).Err(); err != nil {
-		fmt.Fprintf(os.Stderr, "Could not connect to Redis: %v\n", err)
-		os.Exit(1)
-	}
+	go func() {
+		repo := repository.NewTestRepository(map[string]string{testKey: testUrl})
+		h := handler.NewAppHandler(repo)
+		http.HandleFunc("/", h.Handle)
+		http.ListenAndServe(fmt.Sprintf(":%s", port), nil)
+	}()
 	exitVal := m.Run()
 	// Clean up
-	if err := redisClient.FlushDB(ctx).Err(); err != nil {
-		fmt.Fprintf(os.Stderr, "Could not clean up test data in Redis: %v\n", err)
-	}
 	os.Exit(exitVal)
 }
 
 
 func TestMissingItem(t *testing.T) {
-	resp, err := client.Get(fmt.Sprintf("http://web:%s/foo", port))
+	resp, err := client.Get(fmt.Sprintf("http://localhost:%s/bar/", port))
 	if err != nil {
 		t.Error("error on calling api", err)
 	}
@@ -63,8 +53,7 @@ func TestMissingItem(t *testing.T) {
 
 
 func TestRedirect(t *testing.T) {
-	url := fmt.Sprintf("http://web:%s/%s", port, testKey)
-	fmt.Println("URL ", url)
+	url := fmt.Sprintf("http://localhost:%s/%s", port, testKey)
 	resp, err := client.Get(url)
 	if err != nil {
 		t.Error("error on calling api", err)
@@ -82,7 +71,7 @@ func TestRedirect(t *testing.T) {
 }
 
 func TestShortenURL(t *testing.T) {
-	url := fmt.Sprintf("http://web:%s/", port)
+	url := fmt.Sprintf("http://localhost:%s/", port)
 	longURL := "http://example.com"
 	requestBody, err := json.Marshal(handler.ShortenURLRequest{URL: longURL})
 	if err != nil {
